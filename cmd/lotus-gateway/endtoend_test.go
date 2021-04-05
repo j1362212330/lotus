@@ -103,7 +103,7 @@ func TestWalletMsig(t *testing.T) {
 	addProposal, err := lite.MsigCreate(ctx, 2, msigAddrs, abi.ChainEpoch(50), amt, liteWalletAddr, types.NewInt(0))
 	require.NoError(t, err)
 
-	res, err := lite.StateWaitMsg(ctx, addProposal, 1)
+	res, err := lite.StateWaitMsg(ctx, addProposal, 1, api.LookbackNoLimit, true)
 	require.NoError(t, err)
 	require.EqualValues(t, 0, res.Receipt.ExitCode)
 
@@ -123,7 +123,7 @@ func TestWalletMsig(t *testing.T) {
 	addProposal, err = lite.MsigAddPropose(ctx, msig, walletAddrs[0], walletAddrs[3], false)
 	require.NoError(t, err)
 
-	res, err = lite.StateWaitMsg(ctx, addProposal, 1)
+	res, err = lite.StateWaitMsg(ctx, addProposal, 1, api.LookbackNoLimit, true)
 	require.NoError(t, err)
 	require.EqualValues(t, 0, res.Receipt.ExitCode)
 
@@ -137,7 +137,7 @@ func TestWalletMsig(t *testing.T) {
 	approval1, err := lite.MsigAddApprove(ctx, msig, walletAddrs[1], txnID, walletAddrs[0], walletAddrs[3], false)
 	require.NoError(t, err)
 
-	res, err = lite.StateWaitMsg(ctx, approval1, 1)
+	res, err = lite.StateWaitMsg(ctx, approval1, 1, api.LookbackNoLimit, true)
 	require.NoError(t, err)
 	require.EqualValues(t, 0, res.Receipt.ExitCode)
 
@@ -299,7 +299,7 @@ func sendFunds(ctx context.Context, fromNode test.TestNode, fromAddr address.Add
 		return err
 	}
 
-	res, err := fromNode.StateWaitMsg(ctx, sm.Cid(), 1)
+	res, err := fromNode.StateWaitMsg(ctx, sm.Cid(), 1, api.LookbackNoLimit, true)
 	if err != nil {
 		return err
 	}
