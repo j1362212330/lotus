@@ -15,7 +15,7 @@ import (
 
 const (
 	SubmitConfidence    = 4
-	ChallengeConfidence = 10
+	ChallengeConfidence = 2
 )
 
 type CompleteGeneratePoSTCb func(posts []miner.SubmitWindowedPoStParams, err error)
@@ -207,6 +207,8 @@ func (p *proveHandler) run() {
 	}
 }
 
+var runningIndex = sync.Map{}
+
 func (p *proveHandler) processHeadChange(ctx context.Context, newTS *types.TipSet, di *dline.Info) {
 	// If the post window has expired, abort the current proof
 	if p.current != nil && newTS.Height() >= p.current.di.Close {
@@ -239,7 +241,10 @@ func (p *proveHandler) processHeadChange(ctx context.Context, newTS *types.TipSe
 
 	p.current = &currentPost{di: di}
 	curr := p.current
+	runningIndex.Store(di.Index, di) // make a running cache
 	p.current.abort = p.api.startGeneratePoST(ctx, newTS, di, func(posts []miner.SubmitWindowedPoStParams, err error) {
+		// clean the cache, make sure this function can called
+		runningIndex.Delete(di.Index)
 		p.postResults <- &postResult{ts: newTS, currPost: curr, posts: posts, err: err}
 	})
 }

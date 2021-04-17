@@ -2,7 +2,6 @@ package storage
 
 import (
 	"context"
-	"errors"
 	"time"
 
 	"github.com/filecoin-project/go-state-types/network"
@@ -21,6 +20,7 @@ import (
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/crypto"
 	sectorstorage "github.com/filecoin-project/lotus/extern/sector-storage"
+	"github.com/filecoin-project/lotus/extern/sector-storage/database"
 	"github.com/filecoin-project/lotus/extern/sector-storage/ffiwrapper"
 	"github.com/filecoin-project/specs-storage/storage"
 
@@ -37,6 +37,8 @@ import (
 	"github.com/filecoin-project/lotus/journal"
 	"github.com/filecoin-project/lotus/node/config"
 	"github.com/filecoin-project/lotus/node/modules/dtypes"
+
+	"github.com/gwaylib/errors"
 )
 
 var log = logging.Logger("storageminer")
@@ -223,7 +225,7 @@ func NewWinningPoStProver(api v1api.FullNode, prover storage.Prover, verifier ff
 
 	mi, err := api.StateMinerInfo(context.TODO(), ma, types.EmptyTSK)
 	if err != nil {
-		return nil, xerrors.Errorf("getting sector size: %w", err)
+		return nil, errors.As(err, "getting sector size", ma)
 	}
 
 	if build.InsecurePoStValidation {
@@ -249,14 +251,55 @@ func (wpp *StorageWpp) GenerateCandidates(ctx context.Context, randomness abi.Po
 }
 
 func (wpp *StorageWpp) ComputeProof(ctx context.Context, ssi []builtin.SectorInfo, rand abi.PoStRandomness) ([]builtin.PoStProof, error) {
-	if build.InsecurePoStValidation {
-		return []builtin.PoStProof{{ProofBytes: []byte("valid proof")}}, nil
-	}
+	//if build.InsecurePoStValidation {
+	//	return []builtin.PoStProof{{ProofBytes: []byte("valid proof")}}, nil
+	//}
 
 	log.Infof("Computing WinningPoSt ;%+v; %v", ssi, rand)
 
 	start := build.Clock.Now()
-	proof, err := wpp.prover.GenerateWinningPoSt(ctx, wpp.miner, ssi, rand)
+	repo := ""
+	sm, ok := wpp.prover.(*sectorstorage.Manager)
+	if ok {
+		sb, ok := sm.Prover.(*ffiwrapper.Sealer)
+		if ok {
+			repo = sb.RepoPath()
+		}
+	}
+	if len(repo) == 0 {
+		log.Warn("not found default repo")
+	}
+	rSectors := []storage.SectorRef{}
+	pSectors := []storage.ProofSectorInfo{}
+	for _, s := range ssi {
+		id := abi.SectorID{Miner: wpp.miner, Number: s.SectorNumber}
+		sFile, err := database.GetSectorFile(storage.SectorName(id), repo)
+		if err != nil {
+			return nil, err
+		}
+		rSector := storage.SectorRef{
+			ID:         id,
+			ProofType:  s.SealProof,
+			SectorFile: *sFile,
+		}
+		rSectors = append(rSectors, rSector)
+		pSectors = append(pSectors, storage.ProofSectorInfo{
+			SectorRef: rSector,
+			SealedCID: s.SealedCID,
+		})
+	}
+	// TODO: confirm here need to check the files
+	// check files
+	_, _, bad, err := ffiwrapper.CheckProvable(ctx, rSectors, nil, 6*time.Second)
+	if err != nil {
+		return nil, errors.As(err)
+	}
+	if len(bad) > 0 {
+		return nil, xerrors.Errorf("pubSectorToPriv skipped sectors: %+v", bad)
+	}
+	log.Infof("GenerateWinningPoSt checking %s", time.Since(start))
+
+	proof, err := wpp.prover.GenerateWinningPoSt(ctx, wpp.miner, pSectors, rand)
 	if err != nil {
 		return nil, err
 	}

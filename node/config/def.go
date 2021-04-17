@@ -95,6 +95,9 @@ type MinerFeeConfig struct {
 	MaxWindowPoStGasFee    types.FIL
 	MaxPublishDealsFee     types.FIL
 	MaxMarketBalanceAddFee types.FIL
+
+	EnableSeparatePartition bool
+	PartitionsPerMsg        int
 }
 
 type MinerAddressConfig struct {
@@ -245,6 +248,9 @@ func DefaultStorageMiner() *StorageMiner {
 			AllowPreCommit2: true,
 			AllowCommit:     true,
 			AllowUnseal:     true,
+			RemoteSeal:      false,
+			RemoteWnPoSt:    0,
+			RemoteWdPoSt:    0,
 
 			// Default to 10 - tcp should still be able to figure this out, and
 			// it's the ratio between 10gbit / 1gbit
