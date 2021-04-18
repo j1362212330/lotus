@@ -24,6 +24,13 @@ type Provider struct {
 	waitSector map[sectorFile]chan struct{}
 }
 
+func (b *Provider) RepoPath() string {
+	if len(b.Root) == 0 {
+		panic("Not Found Path")
+	}
+	return b.Root
+}
+
 func (b *Provider) AcquireSector(ctx context.Context, id storage.SectorRef, existing storiface.SectorFileType, allocate storiface.SectorFileType, ptype storiface.PathType) (storiface.SectorPaths, func(), error) {
 	if err := os.Mkdir(filepath.Join(b.Root, storiface.FTUnsealed.String()), 0755); err != nil && !os.IsExist(err) { // nolint
 		return storiface.SectorPaths{}, nil, err
