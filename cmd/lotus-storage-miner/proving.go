@@ -7,12 +7,14 @@ import (
 	"text/tabwriter"
 
 	"github.com/fatih/color"
+	"github.com/gwaylib/errors"
 	"github.com/urfave/cli/v2"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/lotus/blockstore"
+	"github.com/filecoin-project/lotus/build"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	"github.com/filecoin-project/lotus/chain/store"
 	"github.com/filecoin-project/lotus/chain/types"
@@ -401,11 +403,6 @@ var provingCheckProvableCmd = &cli.Command{
 			return err
 		}
 
-		info, err := api.StateMinerInfo(ctx, addr, types.EmptyTSK)
-		if err != nil {
-			return err
-		}
-
 		partitions, err := api.StateMinerPartitions(ctx, addr, dlIdx, types.EmptyTSK)
 		if err != nil {
 			return err
@@ -425,16 +422,23 @@ var provingCheckProvableCmd = &cli.Command{
 			var tocheck []storage.SectorRef
 			for _, info := range sectorInfos {
 				sectors[info.SectorNumber] = struct{}{}
+
+				id := abi.SectorID{
+					Miner:  abi.ActorID(mid),
+					Number: info.SectorNumber,
+				}
+				sFile, err := sapi.SnSectorFile(ctx, storage.SectorName(id))
+				if err != nil {
+					return errors.As(err)
+				}
 				tocheck = append(tocheck, storage.SectorRef{
-					ProofType: info.SealProof,
-					ID: abi.SectorID{
-						Miner:  abi.ActorID(mid),
-						Number: info.SectorNumber,
-					},
+					ProofType:  info.SealProof,
+					ID:         id,
+					SectorFile: *sFile,
 				})
 			}
 
-			bad, err := sapi.CheckProvable(ctx, info.WindowPoStProofType, tocheck, cctx.Bool("slow"))
+			bad, err := sapi.CheckProvable(ctx, tocheck, cctx.Bool("slow"), build.GetProvingCheckTimeout())
 			if err != nil {
 				return err
 			}

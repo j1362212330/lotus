@@ -303,7 +303,8 @@ func (st *Local) declareSectors(ctx context.Context, p string, id ID, primary bo
 
 			sid, err := storiface.ParseSectorID(ent.Name())
 			if err != nil {
-				return xerrors.Errorf("parse sector id %s: %w", ent.Name(), err)
+				log.Error(xerrors.Errorf("parse(%s) sector id %s: %w", filepath.Join(p, t.String()), ent.Name(), err))
+				continue
 			}
 
 			if err := st.index.StorageDeclareSector(ctx, id, sid, t, primary); err != nil {

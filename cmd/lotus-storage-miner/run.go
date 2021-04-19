@@ -34,6 +34,9 @@ import (
 	"github.com/filecoin-project/lotus/node/impl"
 	"github.com/filecoin-project/lotus/node/modules/dtypes"
 	"github.com/filecoin-project/lotus/node/repo"
+
+	"github.com/filecoin-project/lotus/extern/sector-storage/database"
+	"github.com/gwaylib/errors"
 )
 
 var runCmd = &cli.Command{
@@ -123,6 +126,28 @@ var runCmd = &cli.Command{
 		if !ok {
 			return xerrors.Errorf("repo at '%s' is not initialized, run 'lotus-miner init' to set it up", minerRepoPath)
 		}
+
+		// implement by sn
+		// init storage database
+		database.InitDB(minerRepoPath)
+		log.Info("Mount all storage")
+		// mount nfs storage node
+		if err := database.MountAllStorage(false); err != nil {
+			return errors.As(err)
+		}
+		log.Info("Clean storage worker")
+		// clean storage cur_work cause by no worker on starting.
+		if err := database.ClearStorageWork(); err != nil {
+			return errors.As(err)
+		}
+		log.Info("Check sealed")
+		// TODO: Move to window post
+		// checking sealed for proof
+		//if err := ffiwrapper.CheckSealed(minerRepoPath); err != nil {
+		//	return errors.As(err)
+		//}
+		// implement by sn end.
+		log.Info("Check done")
 
 		shutdownChan := make(chan struct{})
 

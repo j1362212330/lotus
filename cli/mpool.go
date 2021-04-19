@@ -363,6 +363,10 @@ var MpoolReplaceCmd = &cli.Command{
 	Name:  "replace",
 	Usage: "replace a message in the mempool",
 	Flags: []cli.Flag{
+		&cli.BoolFlag{
+			Name:  "really-do-it",
+			Usage: "if you want to send the message, please using really-do-it",
+		},
 		&cli.StringFlag{
 			Name:  "gas-feecap",
 			Usage: "gas feecap for new message (burn and pay to miner, attoFIL/GasUnit)",
@@ -451,6 +455,7 @@ var MpoolReplaceCmd = &cli.Command{
 		}
 
 		msg := found.Message
+		do := cctx.Bool("really-do-it")
 
 		if cctx.Bool("auto") {
 			minRBF := messagepool.ComputeMinRBF(msg.GasPremium)
@@ -495,6 +500,10 @@ var MpoolReplaceCmd = &cli.Command{
 			if err != nil {
 				return fmt.Errorf("parsing gas-feecap: %w", err)
 			}
+		}
+		if !do {
+			fmt.Printf("if you want to send it out, please using --really-do-it. \nnewMsg:%s\n", msg.String())
+			return nil
 		}
 
 		smsg, err := api.WalletSignMessage(ctx, msg.From, &msg)

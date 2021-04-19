@@ -166,9 +166,61 @@ type StorageMiner interface {
 	// the path specified when calling CreateBackup is within the base path
 	CreateBackup(ctx context.Context, fpath string) error //perm:admin
 
-	CheckProvable(ctx context.Context, pp abi.RegisteredPoStProof, sectors []storage.SectorRef, expensive bool) (map[abi.SectorNumber]string, error) //perm:admin
+	CheckProvable(ctx context.Context, sectors []storage.SectorRef, expensive bool, timeout time.Duration) (map[abi.SectorNumber]string, error) //perm:admin
 
 	ComputeProof(ctx context.Context, ssi []builtin.SectorInfo, rand abi.PoStRandomness) ([]builtin.PoStProof, error) //perm:read
+	// implements by sn
+	WdpostEnablePartitionSeparate(ctx context.Context, enable bool) error //perm:admin
+	WdpostSetPartitionNumber(ctx context.Context, number int) error //perm:admin
+	Testing(ctx context.Context, fnName string, args []string) error //perm:admin
+	RunPledgeSector(context.Context) error //perm:admin
+	StatusPledgeSector(context.Context) (int, error) //perm:admin
+	StopPledgeSector(context.Context) error //perm:admin
+
+	SnSectorGetState(ctx context.Context, sid string) (*database.SectorInfo, error) //perm:admin
+	SnSectorSetState(ctx context.Context, sid, memo string, state int, force, reset bool) (bool, error) //perm:admin
+	SnSectorListAll(context.Context) ([]SectorInfo, error) //perm:admin
+	SnSectorFile(ctx context.Context, sid string) (*storage.SectorFile, error) //perm:admin
+	SnSectorCheck(ctx context.Context, sid string, timeout time.Duration) (time.Duration, error) //perm:admin
+	SelectCommit2Service(context.Context, abi.SectorID) (*ffiwrapper.WorkerCfg, error) //perm:admin
+	UnlockGPUService(ctx context.Context, workerId, taskKey string) error //perm:admin
+	PauseSeal(ctx context.Context, pause int32) error //perm:admin
+	WorkerAddress(context.Context, address.Address, types.TipSetKey) (address.Address, error) //perm:admin
+	WorkerStatus(ctx context.Context) (ffiwrapper.WorkerStats, error) //perm:admin
+	WorkerStatusAll(ctx context.Context) ([]ffiwrapper.WorkerRemoteStats, error) //perm:admin
+	WorkerQueue(context.Context, ffiwrapper.WorkerCfg) (<-chan ffiwrapper.WorkerTask, error) //perm:admin
+	WorkerWorking(ctx context.Context, workerId string) (database.WorkingSectors, error) //perm:admin
+	WorkerWorkingById(ctx context.Context, sid []string) (database.WorkingSectors, error) //perm:admin
+	WorkerLock(ctx context.Context, workerId, taskKey, memo string, sectorState int) error //perm:admin
+	WorkerUnlock(ctx context.Context, workerId, taskKey, memo string, sectorState int) error //perm:admin
+	WorkerGcLock(ctx context.Context, workerId string) ([]string, error) //perm:admin
+	WorkerDone(ctx context.Context, res ffiwrapper.SealRes) error //perm:admin
+	WorkerInfo(ctx context.Context, wid string) (*database.WorkerInfo, error) //perm:admin
+	WorkerSearch(ctx context.Context, ip string) ([]database.WorkerInfo, error) //perm:admin
+	WorkerDisable(ctx context.Context, wid string, disable bool) error //perm:admin
+	WorkerAddConn(ctx context.Context, wid string, num int) error //perm:admin
+	WorkerPreConn(ctx context.Context, skipWid []string) (*database.WorkerInfo, error) //perm:admin
+	WorkerMinerConn(ctx context.Context) (int, error) //perm:admin
+
+	//Storage
+	VerSNStorage(ctx context.Context) (int64, error) //perm:admin
+	GetSNStorage(ctx context.Context, id int64) (*database.StorageInfo, error) //perm:admin
+	SearchSNStorage(ctx context.Context, ip string) ([]database.StorageInfo, error) //perm:admin
+	AddSNStorage(ctx context.Context, info *database.StorageInfo) error //perm:admin
+	DisableSNStorage(ctx context.Context, id int64, disable bool) error //perm:admin
+	MountSNStorage(ctx context.Context, id int64) error //perm:admin
+	RelinkSNStorage(ctx context.Context, id int64) error //perm:admin
+	ReplaceSNStorage(ctx context.Context, info *database.StorageInfo) error //perm:admin
+	ScaleSNStorage(ctx context.Context, id int64, size int64, work int64) error //perm:admin
+	StatusSNStorage(ctx context.Context, id int64, timeout time.Duration) ([]database.StorageStatus, error) //perm:admin
+	PreStorageNode(ctx context.Context, sectorId, clientIp string) (*database.StorageInfo, error) //perm:admin
+	CommitStorageNode(ctx context.Context, sectorId string) error //perm:admin
+	CancelStorageNode(ctx context.Context, sectorId string) error //perm:admin
+	ChecksumStorage(ctx context.Context, ver int64) ([]database.StorageInfo, error) //perm:admin
+	GetProvingCheckTimeout(ctx context.Context) (time.Duration, error) //perm:admin
+	SetProvingCheckTimeout(ctx context.Context, timeout time.Duration) error //perm:admin
+	GetFaultCheckTimeout(ctx context.Context) (time.Duration, error) //perm:admin
+	SetFaultCheckTimeout(ctx context.Context, timeout time.Duration) error //perm:admin
 }
 
 var _ storiface.WorkerReturn = *new(StorageMiner)

@@ -42,6 +42,9 @@ type Verifier interface {
 }
 
 type SectorProvider interface {
+	// implement by sn
+	RepoPath() string
+
 	// * returns storiface.ErrSectorNotFound if a requested existing sector doesn't exist
 	// * returns an error when allocate is set, and existing isn't, and the sector exists
 	AcquireSector(ctx context.Context, id storage.SectorRef, existing storiface.SectorFileType, allocate storiface.SectorFileType, ptype storiface.PathType) (storiface.SectorPaths, func(), error)

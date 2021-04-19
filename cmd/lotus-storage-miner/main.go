@@ -46,6 +46,14 @@ func main() {
 		lcli.WithCategory("storage", storageCmd),
 		lcli.WithCategory("storage", sealingCmd),
 		lcli.WithCategory("retrieval", piecesCmd),
+
+		// implement by sn
+		lcli.WithCategory("sn", pledgeSectorCmd),
+		lcli.WithCategory("sn", snSectorCmd),
+		lcli.WithCategory("sn", snStorageCmd),
+		lcli.WithCategory("sn", snWorkerCmd),
+		lcli.WithCategory("sn", testingCmd),
+		lcli.WithCategory("sn", wdpostCmd),
 	}
 	jaeger := tracing.SetupJaegerTracing("lotus")
 	defer func() {
