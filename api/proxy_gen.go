@@ -4,9 +4,6 @@ package api
 
 import (
 	"context"
-	"io"
-	"time"
-
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-bitfield"
 	datatransfer "github.com/filecoin-project/go-data-transfer"
@@ -23,6 +20,8 @@ import (
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/paych"
 	"github.com/filecoin-project/lotus/chain/types"
+	"github.com/filecoin-project/lotus/extern/sector-storage/database"
+	"github.com/filecoin-project/lotus/extern/sector-storage/ffiwrapper"
 	"github.com/filecoin-project/lotus/extern/sector-storage/fsutil"
 	"github.com/filecoin-project/lotus/extern/sector-storage/sealtasks"
 	"github.com/filecoin-project/lotus/extern/sector-storage/stores"
@@ -37,6 +36,8 @@ import (
 	"github.com/libp2p/go-libp2p-core/peer"
 	protocol "github.com/libp2p/go-libp2p-core/protocol"
 	xerrors "golang.org/x/xerrors"
+	"io"
+	"time"
 )
 
 type ChainIOStruct struct {
@@ -114,6 +115,8 @@ type FullNodeStruct struct {
 
 	Internal struct {
 		BeaconGetEntry func(p0 context.Context, p1 abi.ChainEpoch) (*types.BeaconEntry, error) `perm:"read"`
+
+		ChainComputeBaseFee func(p0 context.Context, p1 types.TipSetKey) (types.BigInt, error) `perm:"read"`
 
 		ChainDeleteObj func(p0 context.Context, p1 cid.Cid) error `perm:"admin"`
 
@@ -248,6 +251,8 @@ type FullNodeStruct struct {
 		MpoolPushMessage func(p0 context.Context, p1 *types.Message, p2 *MessageSendSpec) (*types.SignedMessage, error) `perm:"sign"`
 
 		MpoolPushUntrusted func(p0 context.Context, p1 *types.SignedMessage) (cid.Cid, error) `perm:"write"`
+
+		MpoolRemove func(p0 context.Context, p1 address.Address, p2 uint64) error `perm:"admin"`
 
 		MpoolSelect func(p0 context.Context, p1 types.TipSetKey, p2 float64) ([]*types.SignedMessage, error) `perm:"read"`
 
@@ -541,7 +546,15 @@ type StorageMinerStruct struct {
 
 		ActorSectorSize func(p0 context.Context, p1 address.Address) (abi.SectorSize, error) `perm:"read"`
 
-		CheckProvable func(p0 context.Context, p1 abi.RegisteredPoStProof, p2 []storage.SectorRef, p3 bool) (map[abi.SectorNumber]string, error) `perm:"admin"`
+		AddSNStorage func(p0 context.Context, p1 *database.StorageInfo) error `perm:"admin"`
+
+		CancelStorageNode func(p0 context.Context, p1 string) error `perm:"admin"`
+
+		CheckProvable func(p0 context.Context, p1 []storage.SectorRef, p2 bool, p3 time.Duration) (map[abi.SectorNumber]string, error) `perm:"admin"`
+
+		ChecksumStorage func(p0 context.Context, p1 int64) ([]database.StorageInfo, error) `perm:"admin"`
+
+		CommitStorageNode func(p0 context.Context, p1 string) error `perm:"admin"`
 
 		ComputeProof func(p0 context.Context, p1 []builtin.SectorInfo, p2 abi.PoStRandomness) ([]builtin.PoStProof, error) `perm:"read"`
 
@@ -579,6 +592,14 @@ type StorageMinerStruct struct {
 
 		DealsSetPieceCidBlocklist func(p0 context.Context, p1 []cid.Cid) error `perm:"admin"`
 
+		DisableSNStorage func(p0 context.Context, p1 int64, p2 bool) error `perm:"admin"`
+
+		GetFaultCheckTimeout func(p0 context.Context) (time.Duration, error) `perm:"admin"`
+
+		GetProvingCheckTimeout func(p0 context.Context) (time.Duration, error) `perm:"admin"`
+
+		GetSNStorage func(p0 context.Context, p1 int64) (*database.StorageInfo, error) `perm:"admin"`
+
 		MarketCancelDataTransfer func(p0 context.Context, p1 datatransfer.TransferID, p2 peer.ID, p3 bool) error `perm:"write"`
 
 		MarketDataTransferUpdates func(p0 context.Context) (<-chan DataTransferChannel, error) `perm:"write"`
@@ -611,6 +632,10 @@ type StorageMinerStruct struct {
 
 		MiningBase func(p0 context.Context) (*types.TipSet, error) `perm:"read"`
 
+		MountSNStorage func(p0 context.Context, p1 int64) error `perm:"admin"`
+
+		PauseSeal func(p0 context.Context, p1 int32) error `perm:"admin"`
+
 		PiecesGetCIDInfo func(p0 context.Context, p1 cid.Cid) (*piecestore.CIDInfo, error) `perm:"read"`
 
 		PiecesGetPieceInfo func(p0 context.Context, p1 cid.Cid) (*piecestore.PieceInfo, error) `perm:"read"`
@@ -620,6 +645,12 @@ type StorageMinerStruct struct {
 		PiecesListPieces func(p0 context.Context) ([]cid.Cid, error) `perm:"read"`
 
 		PledgeSector func(p0 context.Context) (abi.SectorID, error) `perm:"write"`
+
+		PreStorageNode func(p0 context.Context, p1 string, p2 string) (*database.StorageInfo, error) `perm:"admin"`
+
+		RelinkSNStorage func(p0 context.Context, p1 int64) error `perm:"admin"`
+
+		ReplaceSNStorage func(p0 context.Context, p1 *database.StorageInfo) error `perm:"admin"`
 
 		ReturnAddPiece func(p0 context.Context, p1 storiface.CallID, p2 abi.PieceInfo, p3 *storiface.CallError) error `perm:"admin"`
 
@@ -643,9 +674,15 @@ type StorageMinerStruct struct {
 
 		ReturnUnsealPiece func(p0 context.Context, p1 storiface.CallID, p2 *storiface.CallError) error `perm:"admin"`
 
+		RunPledgeSector func(p0 context.Context) error `perm:"admin"`
+
+		ScaleSNStorage func(p0 context.Context, p1 int64, p2 int64, p3 int64) error `perm:"admin"`
+
 		SealingAbort func(p0 context.Context, p1 storiface.CallID) error `perm:"admin"`
 
 		SealingSchedDiag func(p0 context.Context, p1 bool) (interface{}, error) `perm:"admin"`
+
+		SearchSNStorage func(p0 context.Context, p1 string) ([]database.StorageInfo, error) `perm:"admin"`
 
 		SectorGetExpectedSealDuration func(p0 context.Context) (time.Duration, error) `perm:"read"`
 
@@ -679,6 +716,28 @@ type StorageMinerStruct struct {
 
 		SectorsUpdate func(p0 context.Context, p1 abi.SectorNumber, p2 SectorState) error `perm:"admin"`
 
+		SelectCommit2Service func(p0 context.Context, p1 abi.SectorID) (*ffiwrapper.WorkerCfg, error) `perm:"admin"`
+
+		SetFaultCheckTimeout func(p0 context.Context, p1 time.Duration) error `perm:"admin"`
+
+		SetProvingCheckTimeout func(p0 context.Context, p1 time.Duration) error `perm:"admin"`
+
+		SnSectorCheck func(p0 context.Context, p1 string, p2 time.Duration) (time.Duration, error) `perm:"admin"`
+
+		SnSectorFile func(p0 context.Context, p1 string) (*storage.SectorFile, error) `perm:"admin"`
+
+		SnSectorGetState func(p0 context.Context, p1 string) (*database.SectorInfo, error) `perm:"admin"`
+
+		SnSectorListAll func(p0 context.Context) ([]SectorInfo, error) `perm:"admin"`
+
+		SnSectorSetState func(p0 context.Context, p1 string, p2 string, p3 int, p4 bool, p5 bool) (bool, error) `perm:"admin"`
+
+		StatusPledgeSector func(p0 context.Context) (int, error) `perm:"admin"`
+
+		StatusSNStorage func(p0 context.Context, p1 int64, p2 time.Duration) ([]database.StorageStatus, error) `perm:"admin"`
+
+		StopPledgeSector func(p0 context.Context) error `perm:"admin"`
+
 		StorageAddLocal func(p0 context.Context, p1 string) error `perm:"admin"`
 
 		StorageAttach func(p0 context.Context, p1 stores.StorageInfo, p2 fsutil.FsStat) error `perm:"admin"`
@@ -705,11 +764,51 @@ type StorageMinerStruct struct {
 
 		StorageTryLock func(p0 context.Context, p1 abi.SectorID, p2 storiface.SectorFileType, p3 storiface.SectorFileType) (bool, error) `perm:"admin"`
 
+		UnlockGPUService func(p0 context.Context, p1 string, p2 string) error `perm:"admin"`
+
+		VerSNStorage func(p0 context.Context) (int64, error) `perm:"admin"`
+
+		WdpostEnablePartitionSeparate func(p0 context.Context, p1 bool) error `perm:"admin"`
+
+		WdpostSetPartitionNumber func(p0 context.Context, p1 int) error `perm:"admin"`
+
+		WorkerAddConn func(p0 context.Context, p1 string, p2 int) error `perm:"admin"`
+
+		WorkerAddress func(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (address.Address, error) `perm:"admin"`
+
 		WorkerConnect func(p0 context.Context, p1 string) error `perm:"admin"`
+
+		WorkerDisable func(p0 context.Context, p1 string, p2 bool) error `perm:"admin"`
+
+		WorkerDone func(p0 context.Context, p1 ffiwrapper.SealRes) error `perm:"admin"`
+
+		WorkerGcLock func(p0 context.Context, p1 string) ([]string, error) `perm:"admin"`
+
+		WorkerInfo func(p0 context.Context, p1 string) (*database.WorkerInfo, error) `perm:"admin"`
 
 		WorkerJobs func(p0 context.Context) (map[uuid.UUID][]storiface.WorkerJob, error) `perm:"admin"`
 
+		WorkerLock func(p0 context.Context, p1 string, p2 string, p3 string, p4 int) error `perm:"admin"`
+
+		WorkerMinerConn func(p0 context.Context) (int, error) `perm:"admin"`
+
+		WorkerPreConn func(p0 context.Context, p1 []string) (*database.WorkerInfo, error) `perm:"admin"`
+
+		WorkerQueue func(p0 context.Context, p1 ffiwrapper.WorkerCfg) (<-chan ffiwrapper.WorkerTask, error) `perm:"admin"`
+
+		WorkerSearch func(p0 context.Context, p1 string) ([]database.WorkerInfo, error) `perm:"admin"`
+
 		WorkerStats func(p0 context.Context) (map[uuid.UUID]storiface.WorkerStats, error) `perm:"admin"`
+
+		WorkerStatus func(p0 context.Context) (ffiwrapper.WorkerStats, error) `perm:"admin"`
+
+		WorkerStatusAll func(p0 context.Context) ([]ffiwrapper.WorkerRemoteStats, error) `perm:"admin"`
+
+		WorkerUnlock func(p0 context.Context, p1 string, p2 string, p3 string, p4 int) error `perm:"admin"`
+
+		WorkerWorking func(p0 context.Context, p1 string) (database.WorkingSectors, error) `perm:"admin"`
+
+		WorkerWorkingById func(p0 context.Context, p1 []string) (database.WorkingSectors, error) `perm:"admin"`
 	}
 }
 
@@ -1023,6 +1122,14 @@ func (s *FullNodeStruct) BeaconGetEntry(p0 context.Context, p1 abi.ChainEpoch) (
 
 func (s *FullNodeStub) BeaconGetEntry(p0 context.Context, p1 abi.ChainEpoch) (*types.BeaconEntry, error) {
 	return nil, xerrors.New("method not supported")
+}
+
+func (s *FullNodeStruct) ChainComputeBaseFee(p0 context.Context, p1 types.TipSetKey) (types.BigInt, error) {
+	return s.Internal.ChainComputeBaseFee(p0, p1)
+}
+
+func (s *FullNodeStub) ChainComputeBaseFee(p0 context.Context, p1 types.TipSetKey) (types.BigInt, error) {
+	return *new(types.BigInt), xerrors.New("method not supported")
 }
 
 func (s *FullNodeStruct) ChainDeleteObj(p0 context.Context, p1 cid.Cid) error {
@@ -1559,6 +1666,14 @@ func (s *FullNodeStruct) MpoolPushUntrusted(p0 context.Context, p1 *types.Signed
 
 func (s *FullNodeStub) MpoolPushUntrusted(p0 context.Context, p1 *types.SignedMessage) (cid.Cid, error) {
 	return *new(cid.Cid), xerrors.New("method not supported")
+}
+
+func (s *FullNodeStruct) MpoolRemove(p0 context.Context, p1 address.Address, p2 uint64) error {
+	return s.Internal.MpoolRemove(p0, p1, p2)
+}
+
+func (s *FullNodeStub) MpoolRemove(p0 context.Context, p1 address.Address, p2 uint64) error {
+	return xerrors.New("method not supported")
 }
 
 func (s *FullNodeStruct) MpoolSelect(p0 context.Context, p1 types.TipSetKey, p2 float64) ([]*types.SignedMessage, error) {
@@ -2633,12 +2748,44 @@ func (s *StorageMinerStub) ActorSectorSize(p0 context.Context, p1 address.Addres
 	return *new(abi.SectorSize), xerrors.New("method not supported")
 }
 
-func (s *StorageMinerStruct) CheckProvable(p0 context.Context, p1 abi.RegisteredPoStProof, p2 []storage.SectorRef, p3 bool) (map[abi.SectorNumber]string, error) {
+func (s *StorageMinerStruct) AddSNStorage(p0 context.Context, p1 *database.StorageInfo) error {
+	return s.Internal.AddSNStorage(p0, p1)
+}
+
+func (s *StorageMinerStub) AddSNStorage(p0 context.Context, p1 *database.StorageInfo) error {
+	return xerrors.New("method not supported")
+}
+
+func (s *StorageMinerStruct) CancelStorageNode(p0 context.Context, p1 string) error {
+	return s.Internal.CancelStorageNode(p0, p1)
+}
+
+func (s *StorageMinerStub) CancelStorageNode(p0 context.Context, p1 string) error {
+	return xerrors.New("method not supported")
+}
+
+func (s *StorageMinerStruct) CheckProvable(p0 context.Context, p1 []storage.SectorRef, p2 bool, p3 time.Duration) (map[abi.SectorNumber]string, error) {
 	return s.Internal.CheckProvable(p0, p1, p2, p3)
 }
 
-func (s *StorageMinerStub) CheckProvable(p0 context.Context, p1 abi.RegisteredPoStProof, p2 []storage.SectorRef, p3 bool) (map[abi.SectorNumber]string, error) {
+func (s *StorageMinerStub) CheckProvable(p0 context.Context, p1 []storage.SectorRef, p2 bool, p3 time.Duration) (map[abi.SectorNumber]string, error) {
 	return *new(map[abi.SectorNumber]string), xerrors.New("method not supported")
+}
+
+func (s *StorageMinerStruct) ChecksumStorage(p0 context.Context, p1 int64) ([]database.StorageInfo, error) {
+	return s.Internal.ChecksumStorage(p0, p1)
+}
+
+func (s *StorageMinerStub) ChecksumStorage(p0 context.Context, p1 int64) ([]database.StorageInfo, error) {
+	return *new([]database.StorageInfo), xerrors.New("method not supported")
+}
+
+func (s *StorageMinerStruct) CommitStorageNode(p0 context.Context, p1 string) error {
+	return s.Internal.CommitStorageNode(p0, p1)
+}
+
+func (s *StorageMinerStub) CommitStorageNode(p0 context.Context, p1 string) error {
+	return xerrors.New("method not supported")
 }
 
 func (s *StorageMinerStruct) ComputeProof(p0 context.Context, p1 []builtin.SectorInfo, p2 abi.PoStRandomness) ([]builtin.PoStProof, error) {
@@ -2785,6 +2932,38 @@ func (s *StorageMinerStub) DealsSetPieceCidBlocklist(p0 context.Context, p1 []ci
 	return xerrors.New("method not supported")
 }
 
+func (s *StorageMinerStruct) DisableSNStorage(p0 context.Context, p1 int64, p2 bool) error {
+	return s.Internal.DisableSNStorage(p0, p1, p2)
+}
+
+func (s *StorageMinerStub) DisableSNStorage(p0 context.Context, p1 int64, p2 bool) error {
+	return xerrors.New("method not supported")
+}
+
+func (s *StorageMinerStruct) GetFaultCheckTimeout(p0 context.Context) (time.Duration, error) {
+	return s.Internal.GetFaultCheckTimeout(p0)
+}
+
+func (s *StorageMinerStub) GetFaultCheckTimeout(p0 context.Context) (time.Duration, error) {
+	return *new(time.Duration), xerrors.New("method not supported")
+}
+
+func (s *StorageMinerStruct) GetProvingCheckTimeout(p0 context.Context) (time.Duration, error) {
+	return s.Internal.GetProvingCheckTimeout(p0)
+}
+
+func (s *StorageMinerStub) GetProvingCheckTimeout(p0 context.Context) (time.Duration, error) {
+	return *new(time.Duration), xerrors.New("method not supported")
+}
+
+func (s *StorageMinerStruct) GetSNStorage(p0 context.Context, p1 int64) (*database.StorageInfo, error) {
+	return s.Internal.GetSNStorage(p0, p1)
+}
+
+func (s *StorageMinerStub) GetSNStorage(p0 context.Context, p1 int64) (*database.StorageInfo, error) {
+	return nil, xerrors.New("method not supported")
+}
+
 func (s *StorageMinerStruct) MarketCancelDataTransfer(p0 context.Context, p1 datatransfer.TransferID, p2 peer.ID, p3 bool) error {
 	return s.Internal.MarketCancelDataTransfer(p0, p1, p2, p3)
 }
@@ -2913,6 +3092,22 @@ func (s *StorageMinerStub) MiningBase(p0 context.Context) (*types.TipSet, error)
 	return nil, xerrors.New("method not supported")
 }
 
+func (s *StorageMinerStruct) MountSNStorage(p0 context.Context, p1 int64) error {
+	return s.Internal.MountSNStorage(p0, p1)
+}
+
+func (s *StorageMinerStub) MountSNStorage(p0 context.Context, p1 int64) error {
+	return xerrors.New("method not supported")
+}
+
+func (s *StorageMinerStruct) PauseSeal(p0 context.Context, p1 int32) error {
+	return s.Internal.PauseSeal(p0, p1)
+}
+
+func (s *StorageMinerStub) PauseSeal(p0 context.Context, p1 int32) error {
+	return xerrors.New("method not supported")
+}
+
 func (s *StorageMinerStruct) PiecesGetCIDInfo(p0 context.Context, p1 cid.Cid) (*piecestore.CIDInfo, error) {
 	return s.Internal.PiecesGetCIDInfo(p0, p1)
 }
@@ -2951,6 +3146,30 @@ func (s *StorageMinerStruct) PledgeSector(p0 context.Context) (abi.SectorID, err
 
 func (s *StorageMinerStub) PledgeSector(p0 context.Context) (abi.SectorID, error) {
 	return *new(abi.SectorID), xerrors.New("method not supported")
+}
+
+func (s *StorageMinerStruct) PreStorageNode(p0 context.Context, p1 string, p2 string) (*database.StorageInfo, error) {
+	return s.Internal.PreStorageNode(p0, p1, p2)
+}
+
+func (s *StorageMinerStub) PreStorageNode(p0 context.Context, p1 string, p2 string) (*database.StorageInfo, error) {
+	return nil, xerrors.New("method not supported")
+}
+
+func (s *StorageMinerStruct) RelinkSNStorage(p0 context.Context, p1 int64) error {
+	return s.Internal.RelinkSNStorage(p0, p1)
+}
+
+func (s *StorageMinerStub) RelinkSNStorage(p0 context.Context, p1 int64) error {
+	return xerrors.New("method not supported")
+}
+
+func (s *StorageMinerStruct) ReplaceSNStorage(p0 context.Context, p1 *database.StorageInfo) error {
+	return s.Internal.ReplaceSNStorage(p0, p1)
+}
+
+func (s *StorageMinerStub) ReplaceSNStorage(p0 context.Context, p1 *database.StorageInfo) error {
+	return xerrors.New("method not supported")
 }
 
 func (s *StorageMinerStruct) ReturnAddPiece(p0 context.Context, p1 storiface.CallID, p2 abi.PieceInfo, p3 *storiface.CallError) error {
@@ -3041,6 +3260,22 @@ func (s *StorageMinerStub) ReturnUnsealPiece(p0 context.Context, p1 storiface.Ca
 	return xerrors.New("method not supported")
 }
 
+func (s *StorageMinerStruct) RunPledgeSector(p0 context.Context) error {
+	return s.Internal.RunPledgeSector(p0)
+}
+
+func (s *StorageMinerStub) RunPledgeSector(p0 context.Context) error {
+	return xerrors.New("method not supported")
+}
+
+func (s *StorageMinerStruct) ScaleSNStorage(p0 context.Context, p1 int64, p2 int64, p3 int64) error {
+	return s.Internal.ScaleSNStorage(p0, p1, p2, p3)
+}
+
+func (s *StorageMinerStub) ScaleSNStorage(p0 context.Context, p1 int64, p2 int64, p3 int64) error {
+	return xerrors.New("method not supported")
+}
+
 func (s *StorageMinerStruct) SealingAbort(p0 context.Context, p1 storiface.CallID) error {
 	return s.Internal.SealingAbort(p0, p1)
 }
@@ -3055,6 +3290,14 @@ func (s *StorageMinerStruct) SealingSchedDiag(p0 context.Context, p1 bool) (inte
 
 func (s *StorageMinerStub) SealingSchedDiag(p0 context.Context, p1 bool) (interface{}, error) {
 	return nil, xerrors.New("method not supported")
+}
+
+func (s *StorageMinerStruct) SearchSNStorage(p0 context.Context, p1 string) ([]database.StorageInfo, error) {
+	return s.Internal.SearchSNStorage(p0, p1)
+}
+
+func (s *StorageMinerStub) SearchSNStorage(p0 context.Context, p1 string) ([]database.StorageInfo, error) {
+	return *new([]database.StorageInfo), xerrors.New("method not supported")
 }
 
 func (s *StorageMinerStruct) SectorGetExpectedSealDuration(p0 context.Context) (time.Duration, error) {
@@ -3185,6 +3428,94 @@ func (s *StorageMinerStub) SectorsUpdate(p0 context.Context, p1 abi.SectorNumber
 	return xerrors.New("method not supported")
 }
 
+func (s *StorageMinerStruct) SelectCommit2Service(p0 context.Context, p1 abi.SectorID) (*ffiwrapper.WorkerCfg, error) {
+	return s.Internal.SelectCommit2Service(p0, p1)
+}
+
+func (s *StorageMinerStub) SelectCommit2Service(p0 context.Context, p1 abi.SectorID) (*ffiwrapper.WorkerCfg, error) {
+	return nil, xerrors.New("method not supported")
+}
+
+func (s *StorageMinerStruct) SetFaultCheckTimeout(p0 context.Context, p1 time.Duration) error {
+	return s.Internal.SetFaultCheckTimeout(p0, p1)
+}
+
+func (s *StorageMinerStub) SetFaultCheckTimeout(p0 context.Context, p1 time.Duration) error {
+	return xerrors.New("method not supported")
+}
+
+func (s *StorageMinerStruct) SetProvingCheckTimeout(p0 context.Context, p1 time.Duration) error {
+	return s.Internal.SetProvingCheckTimeout(p0, p1)
+}
+
+func (s *StorageMinerStub) SetProvingCheckTimeout(p0 context.Context, p1 time.Duration) error {
+	return xerrors.New("method not supported")
+}
+
+func (s *StorageMinerStruct) SnSectorCheck(p0 context.Context, p1 string, p2 time.Duration) (time.Duration, error) {
+	return s.Internal.SnSectorCheck(p0, p1, p2)
+}
+
+func (s *StorageMinerStub) SnSectorCheck(p0 context.Context, p1 string, p2 time.Duration) (time.Duration, error) {
+	return *new(time.Duration), xerrors.New("method not supported")
+}
+
+func (s *StorageMinerStruct) SnSectorFile(p0 context.Context, p1 string) (*storage.SectorFile, error) {
+	return s.Internal.SnSectorFile(p0, p1)
+}
+
+func (s *StorageMinerStub) SnSectorFile(p0 context.Context, p1 string) (*storage.SectorFile, error) {
+	return nil, xerrors.New("method not supported")
+}
+
+func (s *StorageMinerStruct) SnSectorGetState(p0 context.Context, p1 string) (*database.SectorInfo, error) {
+	return s.Internal.SnSectorGetState(p0, p1)
+}
+
+func (s *StorageMinerStub) SnSectorGetState(p0 context.Context, p1 string) (*database.SectorInfo, error) {
+	return nil, xerrors.New("method not supported")
+}
+
+func (s *StorageMinerStruct) SnSectorListAll(p0 context.Context) ([]SectorInfo, error) {
+	return s.Internal.SnSectorListAll(p0)
+}
+
+func (s *StorageMinerStub) SnSectorListAll(p0 context.Context) ([]SectorInfo, error) {
+	return *new([]SectorInfo), xerrors.New("method not supported")
+}
+
+func (s *StorageMinerStruct) SnSectorSetState(p0 context.Context, p1 string, p2 string, p3 int, p4 bool, p5 bool) (bool, error) {
+	return s.Internal.SnSectorSetState(p0, p1, p2, p3, p4, p5)
+}
+
+func (s *StorageMinerStub) SnSectorSetState(p0 context.Context, p1 string, p2 string, p3 int, p4 bool, p5 bool) (bool, error) {
+	return false, xerrors.New("method not supported")
+}
+
+func (s *StorageMinerStruct) StatusPledgeSector(p0 context.Context) (int, error) {
+	return s.Internal.StatusPledgeSector(p0)
+}
+
+func (s *StorageMinerStub) StatusPledgeSector(p0 context.Context) (int, error) {
+	return 0, xerrors.New("method not supported")
+}
+
+func (s *StorageMinerStruct) StatusSNStorage(p0 context.Context, p1 int64, p2 time.Duration) ([]database.StorageStatus, error) {
+	return s.Internal.StatusSNStorage(p0, p1, p2)
+}
+
+func (s *StorageMinerStub) StatusSNStorage(p0 context.Context, p1 int64, p2 time.Duration) ([]database.StorageStatus, error) {
+	return *new([]database.StorageStatus), xerrors.New("method not supported")
+}
+
+func (s *StorageMinerStruct) StopPledgeSector(p0 context.Context) error {
+	return s.Internal.StopPledgeSector(p0)
+}
+
+func (s *StorageMinerStub) StopPledgeSector(p0 context.Context) error {
+	return xerrors.New("method not supported")
+}
+
 func (s *StorageMinerStruct) StorageAddLocal(p0 context.Context, p1 string) error {
 	return s.Internal.StorageAddLocal(p0, p1)
 }
@@ -3289,12 +3620,92 @@ func (s *StorageMinerStub) StorageTryLock(p0 context.Context, p1 abi.SectorID, p
 	return false, xerrors.New("method not supported")
 }
 
+func (s *StorageMinerStruct) UnlockGPUService(p0 context.Context, p1 string, p2 string) error {
+	return s.Internal.UnlockGPUService(p0, p1, p2)
+}
+
+func (s *StorageMinerStub) UnlockGPUService(p0 context.Context, p1 string, p2 string) error {
+	return xerrors.New("method not supported")
+}
+
+func (s *StorageMinerStruct) VerSNStorage(p0 context.Context) (int64, error) {
+	return s.Internal.VerSNStorage(p0)
+}
+
+func (s *StorageMinerStub) VerSNStorage(p0 context.Context) (int64, error) {
+	return 0, xerrors.New("method not supported")
+}
+
+func (s *StorageMinerStruct) WdpostEnablePartitionSeparate(p0 context.Context, p1 bool) error {
+	return s.Internal.WdpostEnablePartitionSeparate(p0, p1)
+}
+
+func (s *StorageMinerStub) WdpostEnablePartitionSeparate(p0 context.Context, p1 bool) error {
+	return xerrors.New("method not supported")
+}
+
+func (s *StorageMinerStruct) WdpostSetPartitionNumber(p0 context.Context, p1 int) error {
+	return s.Internal.WdpostSetPartitionNumber(p0, p1)
+}
+
+func (s *StorageMinerStub) WdpostSetPartitionNumber(p0 context.Context, p1 int) error {
+	return xerrors.New("method not supported")
+}
+
+func (s *StorageMinerStruct) WorkerAddConn(p0 context.Context, p1 string, p2 int) error {
+	return s.Internal.WorkerAddConn(p0, p1, p2)
+}
+
+func (s *StorageMinerStub) WorkerAddConn(p0 context.Context, p1 string, p2 int) error {
+	return xerrors.New("method not supported")
+}
+
+func (s *StorageMinerStruct) WorkerAddress(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (address.Address, error) {
+	return s.Internal.WorkerAddress(p0, p1, p2)
+}
+
+func (s *StorageMinerStub) WorkerAddress(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (address.Address, error) {
+	return *new(address.Address), xerrors.New("method not supported")
+}
+
 func (s *StorageMinerStruct) WorkerConnect(p0 context.Context, p1 string) error {
 	return s.Internal.WorkerConnect(p0, p1)
 }
 
 func (s *StorageMinerStub) WorkerConnect(p0 context.Context, p1 string) error {
 	return xerrors.New("method not supported")
+}
+
+func (s *StorageMinerStruct) WorkerDisable(p0 context.Context, p1 string, p2 bool) error {
+	return s.Internal.WorkerDisable(p0, p1, p2)
+}
+
+func (s *StorageMinerStub) WorkerDisable(p0 context.Context, p1 string, p2 bool) error {
+	return xerrors.New("method not supported")
+}
+
+func (s *StorageMinerStruct) WorkerDone(p0 context.Context, p1 ffiwrapper.SealRes) error {
+	return s.Internal.WorkerDone(p0, p1)
+}
+
+func (s *StorageMinerStub) WorkerDone(p0 context.Context, p1 ffiwrapper.SealRes) error {
+	return xerrors.New("method not supported")
+}
+
+func (s *StorageMinerStruct) WorkerGcLock(p0 context.Context, p1 string) ([]string, error) {
+	return s.Internal.WorkerGcLock(p0, p1)
+}
+
+func (s *StorageMinerStub) WorkerGcLock(p0 context.Context, p1 string) ([]string, error) {
+	return *new([]string), xerrors.New("method not supported")
+}
+
+func (s *StorageMinerStruct) WorkerInfo(p0 context.Context, p1 string) (*database.WorkerInfo, error) {
+	return s.Internal.WorkerInfo(p0, p1)
+}
+
+func (s *StorageMinerStub) WorkerInfo(p0 context.Context, p1 string) (*database.WorkerInfo, error) {
+	return nil, xerrors.New("method not supported")
 }
 
 func (s *StorageMinerStruct) WorkerJobs(p0 context.Context) (map[uuid.UUID][]storiface.WorkerJob, error) {
@@ -3305,12 +3716,92 @@ func (s *StorageMinerStub) WorkerJobs(p0 context.Context) (map[uuid.UUID][]stori
 	return *new(map[uuid.UUID][]storiface.WorkerJob), xerrors.New("method not supported")
 }
 
+func (s *StorageMinerStruct) WorkerLock(p0 context.Context, p1 string, p2 string, p3 string, p4 int) error {
+	return s.Internal.WorkerLock(p0, p1, p2, p3, p4)
+}
+
+func (s *StorageMinerStub) WorkerLock(p0 context.Context, p1 string, p2 string, p3 string, p4 int) error {
+	return xerrors.New("method not supported")
+}
+
+func (s *StorageMinerStruct) WorkerMinerConn(p0 context.Context) (int, error) {
+	return s.Internal.WorkerMinerConn(p0)
+}
+
+func (s *StorageMinerStub) WorkerMinerConn(p0 context.Context) (int, error) {
+	return 0, xerrors.New("method not supported")
+}
+
+func (s *StorageMinerStruct) WorkerPreConn(p0 context.Context, p1 []string) (*database.WorkerInfo, error) {
+	return s.Internal.WorkerPreConn(p0, p1)
+}
+
+func (s *StorageMinerStub) WorkerPreConn(p0 context.Context, p1 []string) (*database.WorkerInfo, error) {
+	return nil, xerrors.New("method not supported")
+}
+
+func (s *StorageMinerStruct) WorkerQueue(p0 context.Context, p1 ffiwrapper.WorkerCfg) (<-chan ffiwrapper.WorkerTask, error) {
+	return s.Internal.WorkerQueue(p0, p1)
+}
+
+func (s *StorageMinerStub) WorkerQueue(p0 context.Context, p1 ffiwrapper.WorkerCfg) (<-chan ffiwrapper.WorkerTask, error) {
+	return nil, xerrors.New("method not supported")
+}
+
+func (s *StorageMinerStruct) WorkerSearch(p0 context.Context, p1 string) ([]database.WorkerInfo, error) {
+	return s.Internal.WorkerSearch(p0, p1)
+}
+
+func (s *StorageMinerStub) WorkerSearch(p0 context.Context, p1 string) ([]database.WorkerInfo, error) {
+	return *new([]database.WorkerInfo), xerrors.New("method not supported")
+}
+
 func (s *StorageMinerStruct) WorkerStats(p0 context.Context) (map[uuid.UUID]storiface.WorkerStats, error) {
 	return s.Internal.WorkerStats(p0)
 }
 
 func (s *StorageMinerStub) WorkerStats(p0 context.Context) (map[uuid.UUID]storiface.WorkerStats, error) {
 	return *new(map[uuid.UUID]storiface.WorkerStats), xerrors.New("method not supported")
+}
+
+func (s *StorageMinerStruct) WorkerStatus(p0 context.Context) (ffiwrapper.WorkerStats, error) {
+	return s.Internal.WorkerStatus(p0)
+}
+
+func (s *StorageMinerStub) WorkerStatus(p0 context.Context) (ffiwrapper.WorkerStats, error) {
+	return *new(ffiwrapper.WorkerStats), xerrors.New("method not supported")
+}
+
+func (s *StorageMinerStruct) WorkerStatusAll(p0 context.Context) ([]ffiwrapper.WorkerRemoteStats, error) {
+	return s.Internal.WorkerStatusAll(p0)
+}
+
+func (s *StorageMinerStub) WorkerStatusAll(p0 context.Context) ([]ffiwrapper.WorkerRemoteStats, error) {
+	return *new([]ffiwrapper.WorkerRemoteStats), xerrors.New("method not supported")
+}
+
+func (s *StorageMinerStruct) WorkerUnlock(p0 context.Context, p1 string, p2 string, p3 string, p4 int) error {
+	return s.Internal.WorkerUnlock(p0, p1, p2, p3, p4)
+}
+
+func (s *StorageMinerStub) WorkerUnlock(p0 context.Context, p1 string, p2 string, p3 string, p4 int) error {
+	return xerrors.New("method not supported")
+}
+
+func (s *StorageMinerStruct) WorkerWorking(p0 context.Context, p1 string) (database.WorkingSectors, error) {
+	return s.Internal.WorkerWorking(p0, p1)
+}
+
+func (s *StorageMinerStub) WorkerWorking(p0 context.Context, p1 string) (database.WorkingSectors, error) {
+	return *new(database.WorkingSectors), xerrors.New("method not supported")
+}
+
+func (s *StorageMinerStruct) WorkerWorkingById(p0 context.Context, p1 []string) (database.WorkingSectors, error) {
+	return s.Internal.WorkerWorkingById(p0, p1)
+}
+
+func (s *StorageMinerStub) WorkerWorkingById(p0 context.Context, p1 []string) (database.WorkingSectors, error) {
+	return *new(database.WorkingSectors), xerrors.New("method not supported")
 }
 
 func (s *WalletStruct) WalletDelete(p0 context.Context, p1 address.Address) error {

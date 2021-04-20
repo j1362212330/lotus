@@ -55,6 +55,7 @@ import (
 	"github.com/filecoin-project/lotus/node/modules/dtypes"
 	"github.com/filecoin-project/lotus/node/repo"
 	"github.com/filecoin-project/lotus/storage"
+	"github.com/gwaylib/errors"
 )
 
 var initCmd = &cli.Command{

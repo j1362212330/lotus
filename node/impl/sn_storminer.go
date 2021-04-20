@@ -16,10 +16,6 @@ import (
 	"github.com/gwaylib/errors"
 )
 
-func (sm *StorageMinerAPI) Testing(ctx context.Context, fnName string, args []string) error {
-	return sm.Miner.Testing(ctx, fnName, args)
-}
-
 func (sm *StorageMinerAPI) WdpostEnablePartitionSeparate(ctx context.Context, enable bool) error {
 	return sm.Miner.WdpostEnablePartitionSeparate(enable)
 }
