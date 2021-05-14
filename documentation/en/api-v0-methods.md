@@ -276,7 +276,7 @@ Response:
 ```json
 {
   "Version": "string value",
-  "APIVersion": 65792,
+  "APIVersion": 131328,
   "BlockDelay": 42
 }
 ```
@@ -4943,7 +4943,8 @@ Response:
   "FilMined": "0",
   "FilBurnt": "0",
   "FilLocked": "0",
-  "FilCirculating": "0"
+  "FilCirculating": "0",
+  "FilReserveDisbursed": "0"
 }
 ```
 

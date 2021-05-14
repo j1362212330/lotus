@@ -114,7 +114,7 @@ func init() {
 	addExample(network.Connected)
 	addExample(dtypes.NetworkName("lotus"))
 	addExample(api.SyncStateStage(1))
-	addExample(api.FullAPIVersion)
+	addExample(api.FullAPIVersion1)
 	addExample(api.PCHInbound)
 	addExample(time.Minute)
 	addExample(datatransfer.TransferID(3))
@@ -261,6 +261,9 @@ func init() {
 		},
 		"methods": []interface{}{}},
 	)
+
+	addExample(api.CheckStatusCode(0))
+	addExample(map[string]interface{}{"abc": 123})
 }
 
 func GetAPIType(name, pkg string) (i interface{}, t, permStruct, commonPermStruct reflect.Type) {
