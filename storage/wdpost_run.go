@@ -1097,6 +1097,11 @@ func (s *WindowPoStScheduler) runSnPost(ctx context.Context, di dline.Info, ts *
 	for batchIdx_p, batch_p := range partitionBatches {
 		count++
 		go func(batchIdx int, batch []api.Partition) {
+			defer func() {
+				if err := recover(); err != nil {
+					log.Warn("wdpost timeout : ", err)
+				}
+			}()
 			log.Info("lookup start batchIdx:", batchIdx)
 			batchPartitionStartIdx := 0
 			for _, batch := range partitionBatches[:batchIdx] {
@@ -1296,5 +1301,4 @@ func (s *WindowPoStScheduler) runSnPost(ctx context.Context, di dline.Info, ts *
 			return posts, nil
 		}
 	}
-	return posts, nil
 }
