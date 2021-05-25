@@ -52,7 +52,7 @@ func checksumFile(aFile, bFile *os.File) (int, error) {
 }
 
 func canAppendFile(aFile, bFile *os.File, aStat, bStat os.FileInfo) (int, error) {
-	checksumSize := int64(pieceSize)
+	checksumSize := int64(pieceSize) * 2
 	// for small size, just do rewrite.
 	aSize := aStat.Size()
 	bSize := bStat.Size()
@@ -67,11 +67,12 @@ func canAppendFile(aFile, bFile *os.File, aStat, bStat os.FileInfo) (int, error)
 	bData := make([]byte, checksumSize)
 	// TODO: get random data
 	if _, err := aFile.Seek(0, 0); err != nil {
-		return append_file_new, err
+		return append_file_new, errors.As(err, aFile.Name())
 	}
 	if _, err := bFile.Seek(0, 0); err != nil {
-		return append_file_new, err
+		return append_file_new, errors.As(err, bFile.Name())
 	}
+
 	if _, err := aFile.ReadAt(aData, bSize-checksumSize); err != nil {
 		return append_file_new, errors.As(err)
 	}
@@ -137,6 +138,9 @@ func copyFile(ctx context.Context, from, to string) error {
 	if err != nil {
 		return errors.As(err, to, uint64(fromStat.Mode()))
 	}
+	if err := toFile.Truncate(0); err != nil {
+		return errors.As(err)
+	}
 	defer toFile.Close()
 	toStat, err := toFile.Stat()
 	if err != nil {
@@ -151,6 +155,9 @@ func copyFile(ctx context.Context, from, to string) error {
 	switch stats {
 	case append_file_completed:
 		// has done
+		// if _, err := checksumFile(fromFile, toFile); err != nil {
+		// 	return errors.As(err, fromFile)
+		// }
 		fmt.Printf("%s ======= completed\n", to)
 		return nil
 
@@ -173,8 +180,11 @@ func copyFile(ctx context.Context, from, to string) error {
 		if err := toFile.Truncate(0); err != nil {
 			return errors.As(err)
 		}
+		if _, err := fromFile.Seek(0, 0); err != nil {
+			return errors.As(err, from)
+		}
 		if _, err := toFile.Seek(0, 0); err != nil {
-			return errors.As(err)
+			return errors.As(err, to)
 		}
 	}
 
@@ -214,10 +224,23 @@ func copyFile(ctx context.Context, from, to string) error {
 		if !errors.Equal(err, io.EOF) {
 			return errors.As(err)
 		}
+
 		// TODO: checksum transfer data
+		fromStat, err = fromFile.Stat()
+		if err != nil {
+			return err
+		}
+		toStat, err = toFile.Stat()
+		if err != nil {
+			return err
+		}
+
 		if fromStat.Size() != toStat.Size() {
 			return errors.New("final size not match").As(from, to, fromStat.Size(), toStat.Size())
 		}
+		// if _, err := checksumFile(fromFile, toFile); err != nil {
+		// 	return errors.As(err, "check sum failed")
+		// }
 		return nil
 	case <-ctx.Done():
 		iLock.Lock()
@@ -250,3 +273,83 @@ func CopyFile(ctx context.Context, from, to string) error {
 	}
 	return nil
 }
+
+// func RsyncFile(ctx context.Context, from, to string) error {
+// 	_, source, err := travelFile(from)
+// 	if err != nil {
+// 		return errors.As(err)
+// 	}
+
+// 	for _, src := range source {
+// 		toFile := strings.Replace(src, from, to, 1)
+// 		tCtx, cancel := context.WithTimeout(ctx, time.Minute*30)
+// 		if err := rsyncFile(tCtx, src, toFile); err != nil {
+// 			log.Warn(err)
+// 			cancel()
+
+// 			tCtx, cancel = context.WithTimeout(ctx, time.Minute*30)
+// 			if err := rsyncFile(tCtx, src, toFile); err != nil {
+// 				log.Warn(errors.As(err))
+
+// 				cancel()
+// 				return errors.As(err)
+// 			}
+// 		}
+// 		cancel()
+// 	}
+// 	return nil
+// }
+
+// func rsyncFile(ctx context.Context, from, to string) error {
+// 	if from == to {
+// 		log.Warn(errors.New("Same file").As(from, to))
+// 		return nil
+// 	}
+// 	now := time.Now()
+// 	fmt.Printf("=========================new\n%s\n", to)
+// 	if err := os.MkdirAll(filepath.Dir(to), 0755); err != nil {
+// 		return errors.As(err, to)
+// 	}
+
+// 	_, err := exec.CommandContext(ctx, "rsync", "-Pat", from, to).CombinedOutput()
+// 	if err != nil {
+// 		fmt.Printf("Duration: %s\n", time.Since(now))
+// 		fmt.Printf("=====================failed\n")
+// 		return errors.As(err, to)
+// 	}
+// 	fmt.Printf("Duration: %s\n", time.Since(now))
+
+// 	// fromFile, err := os.Open(from)
+// 	// if err != nil {
+// 	// 	return errors.As(err, from)
+// 	// }
+
+// 	// toFile, err := os.Open(to)
+// 	// if err != nil {
+// 	// 	return errors.As(err, from)
+// 	// }
+// 	// if _, err := checksumFile(fromFile, toFile); err != nil {
+// 	// 	fmt.Printf("checksum file failed:%s\n", err)
+// 	// 	return err
+// 	// } else {
+// 	// 	fmt.Printf("checksum file %s success\n", to)
+// 	// }
+
+// 	fmt.Printf("============================completed\n")
+// 	return nil
+// }
+
+// func mvFile(ctx context.Context, from, to string) error {
+// 	if from == to {
+// 		log.Warn(errors.New("Same file").As(from, to))
+// 	}
+
+// 	if err := os.MkdirAll(filepath.Dir(to), 0755); err != nil {
+// 		return errors.As(err, to)
+// 	}
+// 	if _, err := exec.CommandContext(ctx, "mv", from, to).CombinedOutput(); err != nil {
+// 		return errors.As(err, to)
+// 	}
+
+// 	return nil
+// }

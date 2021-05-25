@@ -28,13 +28,6 @@ func (w *rpcServer) Version(context.Context) (api.Version, error) {
 	return 0, nil
 }
 
-func (w *rpcServer) SealCommit2(ctx context.Context, sector api.SectorRef, commit1Out storage.Commit1Out) (storage.Proof, error) {
-	log.Infof("SealCommit2 RPC in:%+v", sector)
-	defer log.Infof("SealCommit2 RPC out:%+v", sector)
-
-	return w.sb.SealCommit2(ctx, storage.SectorRef{ID: sector.SectorID, ProofType: sector.ProofType}, commit1Out)
-}
-
 func (w *rpcServer) loadMinerStorage(ctx context.Context, napi api.StorageMiner) error {
 	w.storageLk.Lock()
 	defer w.storageLk.Unlock()

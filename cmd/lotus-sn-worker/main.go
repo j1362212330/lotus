@@ -23,13 +23,11 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/lotus/api"
-	"github.com/filecoin-project/lotus/api/apistruct"
 	"github.com/filecoin-project/lotus/build"
 	"github.com/filecoin-project/lotus/chain/types"
 	lcli "github.com/filecoin-project/lotus/cli"
 	"github.com/filecoin-project/lotus/lib/fileserver"
 	"github.com/filecoin-project/lotus/lib/lotuslog"
-	"github.com/filecoin-project/lotus/lib/report"
 	"github.com/filecoin-project/lotus/node/repo"
 
 	"github.com/gwaylib/errors"
@@ -164,11 +162,6 @@ var runCmd = &cli.Command{
 			Name:    "id-file",
 			EnvVars: []string{"WORKER_ID_PATH"},
 			Value:   "~/.lotusworker/worker.id", // TODO: Consider XDG_DATA_HOME
-		},
-		&cli.StringFlag{
-			Name:  "report-url",
-			Value: "",
-			Usage: "report url for state",
 		},
 		&cli.StringFlag{
 			Name:  "listen-addr",
@@ -375,7 +368,7 @@ var runCmd = &cli.Command{
 
 		mux := mux.NewRouter()
 		rpcServer := jsonrpc.NewServer()
-		rpcServer.Register("Filecoin", apistruct.PermissionedWorkerSnAPI(workerApi))
+		rpcServer.Register("Filecoin", api.PermissionedWorkerSnAPI(workerApi))
 		mux.Handle("/rpc/v0", rpcServer)
 		mux.PathPrefix("/file").HandlerFunc(fileserver.NewStorageFileServer(workerRepo).FileHttpServer)
 		mux.PathPrefix("/").Handler(http.DefaultServeMux) // pprof
@@ -402,11 +395,6 @@ var runCmd = &cli.Command{
 				os.Exit(1)
 			}
 		}()
-
-		// set report url
-		if reportUrl := cctx.String("report-url"); len(reportUrl) > 0 {
-			report.SetReportUrl(reportUrl)
-		}
 
 		log.Info("starting acceptJobs")
 		if err := acceptJobs(ctx,

@@ -6,12 +6,16 @@ import (
 	"crypto/rand"
 	"fmt"
 	"math"
+	"net/http"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-bitfield"
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/crypto"
+	"github.com/filecoin-project/lotus/api/client"
 	"github.com/filecoin-project/lotus/chain/types"
 	lcli "github.com/filecoin-project/lotus/cli"
 	"github.com/filecoin-project/lotus/extern/sector-storage/database"
@@ -30,6 +34,7 @@ var testCmd = &cli.Command{
 	Subcommands: []*cli.Command{
 		testWdPoStCmd,
 		testWnPostCmd,
+		testWnPostCmd2,
 	},
 }
 
@@ -123,6 +128,9 @@ var testWdPoStCmd = &cli.Command{
 		}
 
 		index := cctx.Uint64("index")
+		if index < 0 || index > 47 {
+			return errors.New("index error")
+		}
 
 		log.Info("get miner partitions")
 		partitions, err := fullApi.StateMinerPartitions(ctx, act, index, ts.Key())
@@ -140,7 +148,15 @@ var testWdPoStCmd = &cli.Command{
 		}
 
 		log.Info("get randomness")
-		randEpoch := deadline.Challenge - abi.ChainEpoch((deadline.Index-index)*60)
+		var randEpoch abi.ChainEpoch
+		if deadline.Index > index {
+			randEpoch = deadline.Challenge - abi.ChainEpoch((deadline.Index-index)*60)
+		} else if deadline.Index < index {
+			randEpoch = deadline.Challenge - abi.ChainEpoch((deadline.Index+48-index)*60)
+		} else {
+			return errors.New("current")
+		}
+
 		rand, err := fullApi.ChainGetRandomnessFromBeacon(ctx, ts.Key(), crypto.DomainSeparationTag_WindowedPoStChallengeSeed, randEpoch, buf.Bytes())
 		if err != nil {
 			return errors.As(err)
@@ -172,7 +188,8 @@ var testWdPoStCmd = &cli.Command{
 				}
 				sFile, err := minerApi.SnSectorFile(ctx, storage.SectorName(id))
 				if err != nil {
-					return errors.As(err)
+					log.Info("sFile : ", err.Error())
+					continue
 				}
 				sRef := storage.SectorRef{
 					ID:         id,
@@ -350,6 +367,144 @@ var testWnPostCmd = &cli.Command{
 		if err != nil {
 			return xerrors.Errorf("failed to compute proof: %w", err)
 		}
+		log.Infow("winning PoSt successful", "took", time.Now().Sub(start))
+		return nil
+	},
+}
+
+var testWnPostCmd2 = &cli.Command{
+	Name:  "wnpost2",
+	Usage: "testing wnpost",
+	Flags: []cli.Flag{
+		&cli.StringFlag{
+			Name:  "wnpost-worker-address",
+			Value: "",
+			Usage: "local wnpost worker address(host:port)",
+		},
+	},
+
+	Action: func(cctx *cli.Context) error {
+
+		waddres := cctx.String("wnpost-worker-address")
+		if len(waddres) == 0 {
+			return errors.New("need wnpost-worker-address ")
+		}
+
+		urlInfo := strings.Split(waddres, ":")
+		if len(urlInfo) != 2 {
+			return errors.New("error address format")
+		}
+
+		rpcUrl := fmt.Sprintf("http://%s:%s/rpc/v0", urlInfo[0], urlInfo[1])
+
+		fullApi, closer, err := lcli.GetFullNodeAPI(cctx)
+
+		if err != nil {
+			return errors.As(err)
+		}
+
+		defer closer()
+		minerApi, closer, err := lcli.GetStorageMinerAPI(cctx)
+		if err != nil {
+			return errors.As(err)
+		}
+		defer closer()
+
+		ctx, cancel := context.WithCancel(lcli.ReqContext(cctx))
+		defer cancel()
+
+		act, err := minerApi.ActorAddress(ctx)
+		if err != nil {
+			return err
+		}
+
+		var sector abi.SectorNumber = math.MaxUint64
+
+		deadlines, err := fullApi.StateMinerDeadlines(ctx, act, types.EmptyTSK)
+		if err != nil {
+			return xerrors.Errorf("getting deadlines: %w", err)
+		}
+	out:
+		for dlIdx := range deadlines {
+			partitions, err := fullApi.StateMinerPartitions(ctx, act, uint64(dlIdx), types.EmptyTSK)
+			if err != nil {
+				return xerrors.Errorf("getting partitions for deadline %d: %w", dlIdx, err)
+			}
+			for _, partition := range partitions {
+				b, err := partition.ActiveSectors.Last()
+				if err == bitfield.ErrNoBitsSet {
+					continue
+				}
+				if err != nil {
+					return err
+				}
+				sector = abi.SectorNumber(b)
+				break out
+			}
+		}
+
+		if sector == math.MaxUint64 {
+			log.Info("skipping winning PoSt, no sectors")
+			return nil
+		}
+
+		log.Infow("starting winning PoSt", "sector", sector)
+		start := time.Now()
+
+		var r abi.PoStRandomness = make([]byte, abi.RandomnessLength)
+		_, _ = rand.Read(r)
+
+		si, err := fullApi.StateSectorGetInfo(ctx, act, sector, types.EmptyTSK)
+		if err != nil {
+			return xerrors.Errorf("getting sector info: %w", err)
+		}
+		mid, err := address.IDFromAddress(act)
+		if err != nil {
+			return errors.As(err)
+		}
+
+		id := abi.SectorID{Miner: abi.ActorID(mid), Number: sector}
+		sFile, err := minerApi.SnSectorFile(ctx, storage.SectorName(id))
+		if err != nil {
+			return errors.As(err)
+		}
+
+		sr := storage.SectorRef{
+			ID:         id,
+			ProofType:  si.SealProof,
+			SectorFile: *sFile,
+		}
+
+		sectorInfo := []storage.ProofSectorInfo{
+			{
+				SectorRef: sr,
+				SealedCID: si.SealedCID,
+			},
+		}
+
+		headers := http.Header{}
+
+		minfo := os.Getenv("MINER_API_INFO")
+		if len(minfo) == 0 {
+			return errors.New("need miner api info")
+		}
+		info := strings.Split(minfo, ":")
+		if len(info) != 2 || len(info[0]) == 0 {
+			return errors.New("error miner api info format")
+		}
+
+		headers.Add("Authorization", "Bearer "+string(info[0]))
+		napi, closer, err := client.NewWorkerSnRPC(ctx, rpcUrl, headers)
+		if err != nil {
+			return err
+		}
+		defer closer()
+
+		res, err := napi.GenerateWinningPoSt(ctx, abi.ActorID(mid), sectorInfo, r)
+		if err != nil {
+			return xerrors.Errorf("failed to compute proof: %w", err)
+		}
+		log.Info("proof res: %s", res)
 		log.Infow("winning PoSt successful", "took", time.Now().Sub(start))
 		return nil
 	},

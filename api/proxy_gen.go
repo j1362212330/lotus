@@ -28,6 +28,7 @@ import (
 	"github.com/filecoin-project/lotus/extern/sector-storage/storiface"
 	marketevents "github.com/filecoin-project/lotus/markets/loggers"
 	"github.com/filecoin-project/lotus/node/modules/dtypes"
+	"github.com/filecoin-project/specs-actors/actors/runtime/proof"
 	"github.com/filecoin-project/specs-storage/storage"
 	"github.com/google/uuid"
 	"github.com/ipfs/go-cid"
@@ -539,6 +540,17 @@ type GatewayStruct struct {
 type GatewayStub struct {
 }
 
+type ServerSnAPIStruct struct {
+	Internal struct {
+		SealCommit2 func(p0 context.Context, p1 storage.SectorRef, p2 storage.Commit1Out) (storage.Proof, error) `perm:"admin"`
+
+		Version func(p0 context.Context) (Version, error) `perm:"admin"`
+	}
+}
+
+type ServerSnAPIStub struct {
+}
+
 type SignableStruct struct {
 	Internal struct {
 		Sign func(p0 context.Context, p1 SignFunc) error ``
@@ -546,6 +558,21 @@ type SignableStruct struct {
 }
 
 type SignableStub struct {
+}
+
+type SrvCenterAPIStruct struct {
+	Internal struct {
+		GetService func(p0 context.Context, p1 string) (ServiceDescInfo, error) `perm:"admin"`
+
+		RegisterService func(p0 context.Context, p1 ServiceDescInfo) error `perm:"admin"`
+
+		StatisticInfo func(p0 context.Context) (StatisticInfo, error) `perm:"admin"`
+
+		Version func(p0 context.Context) (Version, error) `perm:"admin"`
+	}
+}
+
+type SrvCenterAPIStub struct {
 }
 
 type StorageMinerStruct struct {
@@ -902,6 +929,19 @@ type WorkerStruct struct {
 }
 
 type WorkerStub struct {
+}
+
+type WorkerSnAPIStruct struct {
+	Internal struct {
+		GenerateWindowPoSt func(p0 context.Context, p1 abi.ActorID, p2 []storage.ProofSectorInfo, p3 abi.PoStRandomness) (WindowPoStResp, error) `perm:"admin"`
+
+		GenerateWinningPoSt func(p0 context.Context, p1 abi.ActorID, p2 []storage.ProofSectorInfo, p3 abi.PoStRandomness) ([]proof.PoStProof, error) `perm:"admin"`
+
+		Version func(p0 context.Context) (Version, error) `perm:"admin"`
+	}
+}
+
+type WorkerSnAPIStub struct {
 }
 
 func (s *ChainIOStruct) ChainHasObj(p0 context.Context, p1 cid.Cid) (bool, error) {
@@ -2776,12 +2816,60 @@ func (s *GatewayStub) WalletBalance(p0 context.Context, p1 address.Address) (typ
 	return *new(types.BigInt), xerrors.New("method not supported")
 }
 
+func (s *ServerSnAPIStruct) SealCommit2(p0 context.Context, p1 storage.SectorRef, p2 storage.Commit1Out) (storage.Proof, error) {
+	return s.Internal.SealCommit2(p0, p1, p2)
+}
+
+func (s *ServerSnAPIStub) SealCommit2(p0 context.Context, p1 storage.SectorRef, p2 storage.Commit1Out) (storage.Proof, error) {
+	return *new(storage.Proof), xerrors.New("method not supported")
+}
+
+func (s *ServerSnAPIStruct) Version(p0 context.Context) (Version, error) {
+	return s.Internal.Version(p0)
+}
+
+func (s *ServerSnAPIStub) Version(p0 context.Context) (Version, error) {
+	return *new(Version), xerrors.New("method not supported")
+}
+
 func (s *SignableStruct) Sign(p0 context.Context, p1 SignFunc) error {
 	return s.Internal.Sign(p0, p1)
 }
 
 func (s *SignableStub) Sign(p0 context.Context, p1 SignFunc) error {
 	return xerrors.New("method not supported")
+}
+
+func (s *SrvCenterAPIStruct) GetService(p0 context.Context, p1 string) (ServiceDescInfo, error) {
+	return s.Internal.GetService(p0, p1)
+}
+
+func (s *SrvCenterAPIStub) GetService(p0 context.Context, p1 string) (ServiceDescInfo, error) {
+	return *new(ServiceDescInfo), xerrors.New("method not supported")
+}
+
+func (s *SrvCenterAPIStruct) RegisterService(p0 context.Context, p1 ServiceDescInfo) error {
+	return s.Internal.RegisterService(p0, p1)
+}
+
+func (s *SrvCenterAPIStub) RegisterService(p0 context.Context, p1 ServiceDescInfo) error {
+	return xerrors.New("method not supported")
+}
+
+func (s *SrvCenterAPIStruct) StatisticInfo(p0 context.Context) (StatisticInfo, error) {
+	return s.Internal.StatisticInfo(p0)
+}
+
+func (s *SrvCenterAPIStub) StatisticInfo(p0 context.Context) (StatisticInfo, error) {
+	return *new(StatisticInfo), xerrors.New("method not supported")
+}
+
+func (s *SrvCenterAPIStruct) Version(p0 context.Context) (Version, error) {
+	return s.Internal.Version(p0)
+}
+
+func (s *SrvCenterAPIStub) Version(p0 context.Context) (Version, error) {
+	return *new(Version), xerrors.New("method not supported")
 }
 
 func (s *StorageMinerStruct) ActorAddress(p0 context.Context) (address.Address, error) {
@@ -4112,11 +4200,38 @@ func (s *WorkerStub) WaitQuiet(p0 context.Context) error {
 	return xerrors.New("method not supported")
 }
 
+func (s *WorkerSnAPIStruct) GenerateWindowPoSt(p0 context.Context, p1 abi.ActorID, p2 []storage.ProofSectorInfo, p3 abi.PoStRandomness) (WindowPoStResp, error) {
+	return s.Internal.GenerateWindowPoSt(p0, p1, p2, p3)
+}
+
+func (s *WorkerSnAPIStub) GenerateWindowPoSt(p0 context.Context, p1 abi.ActorID, p2 []storage.ProofSectorInfo, p3 abi.PoStRandomness) (WindowPoStResp, error) {
+	return *new(WindowPoStResp), xerrors.New("method not supported")
+}
+
+func (s *WorkerSnAPIStruct) GenerateWinningPoSt(p0 context.Context, p1 abi.ActorID, p2 []storage.ProofSectorInfo, p3 abi.PoStRandomness) ([]proof.PoStProof, error) {
+	return s.Internal.GenerateWinningPoSt(p0, p1, p2, p3)
+}
+
+func (s *WorkerSnAPIStub) GenerateWinningPoSt(p0 context.Context, p1 abi.ActorID, p2 []storage.ProofSectorInfo, p3 abi.PoStRandomness) ([]proof.PoStProof, error) {
+	return *new([]proof.PoStProof), xerrors.New("method not supported")
+}
+
+func (s *WorkerSnAPIStruct) Version(p0 context.Context) (Version, error) {
+	return s.Internal.Version(p0)
+}
+
+func (s *WorkerSnAPIStub) Version(p0 context.Context) (Version, error) {
+	return *new(Version), xerrors.New("method not supported")
+}
+
 var _ ChainIO = new(ChainIOStruct)
 var _ Common = new(CommonStruct)
 var _ FullNode = new(FullNodeStruct)
 var _ Gateway = new(GatewayStruct)
+var _ ServerSnAPI = new(ServerSnAPIStruct)
 var _ Signable = new(SignableStruct)
+var _ SrvCenterAPI = new(SrvCenterAPIStruct)
 var _ StorageMiner = new(StorageMinerStruct)
 var _ Wallet = new(WalletStruct)
 var _ Worker = new(WorkerStruct)
+var _ WorkerSnAPI = new(WorkerSnAPIStruct)

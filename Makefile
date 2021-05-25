@@ -98,10 +98,39 @@ BINS+=lotus-miner
 
 lotus-worker: $(BUILD_DEPS)
 	rm -f lotus-worker
-	go build $(GOFLAGS) -o lotus-worker ./cmd/lotus-seal-worker
+	go build $(GOFLAGS) -o lotus-worker ./cmd/lotus-sn-worker
 	go run github.com/GeertJohan/go.rice/rice append --exec lotus-worker -i ./build
 .PHONY: lotus-worker
 BINS+=lotus-worker
+
+lotus-sector-recover: $(BUILD_DEPS)
+	rm -f lotus-sector-recover 
+	go build $(GOFLAGS) -o lotus-sector-recover ./cmd/lotus-sector-recover 
+	go run github.com/GeertJohan/go.rice/rice append --exec lotus-sector-recover -i ./build
+. PHONY: lotus-sector-recover
+BINS+=lotus-sector-recover
+
+lotus-service-center: $(BUILD_DEPS)
+	rm -f lotus-service-center 
+	go build $(GOFLAGS) -o lotus-service-center ./cmd/lotus-service-center 
+	go run github.com/GeertJohan/go.rice/rice append --exec lotus-service-center -i ./build
+. PHONY: lotus-service-center 
+BINS+=lotus-service-center
+
+lotus-sn-server: $(BUILD_DEPS)
+	rm -f lotus-sn-server 
+	go build $(GOFLAGS) -o lotus-sn-server ./cmd/lotus-sn-server 
+	go run github.com/GeertJohan/go.rice/rice append --exec lotus-sn-server -i ./build
+.PHONY: lotus-sn-server 
+BINS+=lotus-sn-server
+	
+chain-watch: $(BUILD_DEPS)
+	rm -f lotus-chain-watch
+	go build $(GOFLAGS) -o lotus-chain-watch ./cmd/chain-watch
+	go run github.com/GeertJohan/go.rice/rice append --exec lotus-chain-watch -i ./build
+.PHONY: lotus-chain-watch
+BINS+=lotus-chain-watch
+
 
 lotus-shed: $(BUILD_DEPS)
 	rm -f lotus-shed
@@ -116,7 +145,7 @@ lotus-gateway: $(BUILD_DEPS)
 .PHONY: lotus-gateway
 BINS+=lotus-gateway
 
-build: lotus lotus-miner lotus-worker
+build: lotus lotus-miner lotus-worker lotus-shed lotus-bench leveldb-tools lotus-service-center lotus-sn-server lotus-sector-recover
 	@[[ $$(type -P "lotus") ]] && echo "Caution: you have \
 an existing lotus binary in your PATH. This may cause problems if you don't run 'sudo make install'" || true
 
@@ -216,6 +245,12 @@ lotus-health:
 .PHONY: lotus-health
 BINS+=lotus-health
 
+leveldb-tools:
+	rm -f leveldb-tools 
+	go build -o leveldb-tools ./cmd/tools/leveldb-tools/main.go
+.PHONY: leveldb-tools
+BINS+=leveldb-tools
+
 lotus-wallet:
 	rm -f lotus-wallet
 	go build -o lotus-wallet ./cmd/lotus-wallet
@@ -232,13 +267,6 @@ testground:
 	go build -tags testground -o /dev/null ./cmd/lotus
 .PHONY: testground
 BINS+=testground
-
-
-tvx:
-	rm -f tvx
-	go build -o tvx ./cmd/tvx
-.PHONY: tvx
-BINS+=tvx
 
 install-chainwatch: lotus-chainwatch
 	install -C ./lotus-chainwatch /usr/local/bin/lotus-chainwatch
@@ -303,10 +331,17 @@ clean-services: clean-all-services
 
 buildall: $(BINS)
 
+completions:
+	./scripts/make-completions.sh lotus
+	./scripts/make-completions.sh lotus-miner
+.PHONY: completions
+
 install-completions:
 	mkdir -p /usr/share/bash-completion/completions /usr/local/share/zsh/site-functions/
 	install -C ./scripts/bash-completion/lotus /usr/share/bash-completion/completions/lotus
+	install -C ./scripts/bash-completion/lotus-miner /usr/share/bash-completion/completions/lotus-miner
 	install -C ./scripts/zsh-completion/lotus /usr/local/share/zsh/site-functions/_lotus
+	install -C ./scripts/zsh-completion/lotus-miner /usr/local/share/zsh/site-functions/_lotus-miner
 
 clean:
 	rm -rf $(CLEAN) $(BINS)
@@ -318,64 +353,19 @@ dist-clean:
 	git submodule deinit --all -f
 .PHONY: dist-clean
 
-type-gen: api-gen
+type-gen:
 	go run ./gen/main.go
-	go generate -x ./...
-	goimports -w api/
+	go generate ./...
 
-method-gen: api-gen
+method-gen:
 	(cd ./lotuspond/front/src/chain && go run ./methodgen.go)
 
-actors-gen:
-	go run ./chain/actors/agen
-	go fmt ./...
+gen: type-gen method-gen
 
-api-gen:
-	go run ./gen/api
-	goimports -w api
-	goimports -w api
-.PHONY: api-gen
-
-docsgen: docsgen-md docsgen-openrpc
-
-docsgen-md-bin: api-gen actors-gen
-	go build $(GOFLAGS) -o docgen-md ./api/docgen/cmd
-docsgen-openrpc-bin: api-gen actors-gen
-	go build $(GOFLAGS) -o docgen-openrpc ./api/docgen-openrpc/cmd
-
-docsgen-md: docsgen-md-full docsgen-md-storage docsgen-md-worker
-
-docsgen-md-full: docsgen-md-bin
-	./docgen-md "api/api_full.go" "FullNode" "api" "./api" > documentation/en/api-v1-unstable-methods.md
-	./docgen-md "api/v0api/full.go" "FullNode" "v0api" "./api/v0api" > documentation/en/api-v0-methods.md
-docsgen-md-storage: docsgen-md-bin
-	./docgen-md "api/api_storage.go" "StorageMiner" "api" "./api" > documentation/en/api-v0-methods-miner.md
-docsgen-md-worker: docsgen-md-bin
-	./docgen-md "api/api_worker.go" "Worker" "api" "./api" > documentation/en/api-v0-methods-worker.md
-
-docsgen-openrpc: docsgen-openrpc-full docsgen-openrpc-storage docsgen-openrpc-worker
-
-docsgen-openrpc-full: docsgen-openrpc-bin
-	./docgen-openrpc "api/api_full.go" "FullNode" "api" "./api" -gzip > build/openrpc/full.json.gz
-docsgen-openrpc-storage: docsgen-openrpc-bin
-	./docgen-openrpc "api/api_storage.go" "StorageMiner" "api" "./api" -gzip > build/openrpc/miner.json.gz
-docsgen-openrpc-worker: docsgen-openrpc-bin
-	./docgen-openrpc "api/api_worker.go" "Worker" "api" "./api" -gzip > build/openrpc/worker.json.gz
-
-.PHONY: docsgen docsgen-md-bin docsgen-openrpc-bin
-
-gen: actors-gen type-gen method-gen docsgen api-gen
-	@echo ">>> IF YOU'VE MODIFIED THE CLI, REMEMBER TO ALSO MAKE docsgen-cli"
-.PHONY: gen
-
-snap: lotus lotus-miner lotus-worker
-	snapcraft
-	# snapcraft upload ./lotus_*.snap
-
-# separate from gen because it needs binaries
-docsgen-cli: lotus lotus-miner lotus-worker
-	python ./scripts/generate-lotus-cli.py
-.PHONY: docsgen-cli
+docsgen:
+	go run ./api/docgen "api/api_full.go" "FullNode" > documentation/en/api-methods.md
+	go run ./api/docgen "api/api_storage.go" "StorageMiner" > documentation/en/api-methods-miner.md
+	go run ./api/docgen "api/api_worker.go" "WorkerAPI" > documentation/en/api-methods-worker.md
 
 print-%:
 	@echo $*=$($*)

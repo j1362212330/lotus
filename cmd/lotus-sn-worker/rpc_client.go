@@ -141,39 +141,3 @@ func CallCommit2Service2(ctx context.Context, task ffiwrapper.WorkerTask, c1out 
 	defer closer()
 	return sapi.SealCommit2(ctx, storage.SectorRef{ID: task.SectorID, ProofType: task.ProofType}, c1out)
 }
-
-func CallCommit2Service(ctx context.Context, task ffiwrapper.WorkerTask, c1out storage.Commit1Out) (storage.Proof, error) {
-	napi, err := GetNodeApi()
-	if err != nil {
-		return nil, errors.As(err)
-	}
-	rCfg, err := napi.SelectCommit2Service(ctx, task.SectorID)
-	if err != nil {
-		return nil, errors.As(err)
-	}
-	defer func() {
-		if err := napi.UnlockGPUService(ctx, rCfg.ID, task.Key()); err != nil {
-			log.Warn(errors.As(err))
-		}
-	}()
-
-	log.Infof("Selected Commit2 Service: %s", rCfg.SvcUri)
-
-	// connect to remote worker
-	rClient, err := ConnectSnWorker(ctx, napi, rCfg.SvcUri)
-	if err != nil {
-		return nil, errors.As(err)
-	}
-	defer rClient.Close()
-
-	// "registered_proof": "StackedDrg32GiBV1_1"
-	//output["registered_proof"] = "StackedDrg32GiBV1"
-	////c1data, err:= json.MarshalIndent(output, ""," ")
-	//c1o, err := json.Marshal(output)
-	//if err != nil {
-	//	return nil, errors.As(err)
-	//}
-
-	// do work
-	return rClient.SealCommit2(ctx, api.SectorRef{SectorID: task.SectorID, ProofType: task.ProofType}, c1out)
-}
